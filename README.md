@@ -30,7 +30,7 @@ func main() {
 	fileLogger.Info("You shouldn't see this info message at debug level")
 	fileLogger.Debug("This debug message will be appended to the log file!")
 
-  // Change the file logger's level to "warn" so that only warnings and errors are logged.
+	// Change the file logger's level to "warn" so that only warnings and errors are logged.
 	fileLogger.SetLogLevel("warn")
 	fileLogger.Info("This info message will not be logged at the 'warn' level")
 	fileLogger.Debug("Nor will this debug message")

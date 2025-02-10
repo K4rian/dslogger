@@ -14,36 +14,34 @@ const (
 	clReset  = "\033[0m"
 )
 
+var levelNames = map[zapcore.Level]string{
+	zapcore.DebugLevel: "DEBUG",
+	zapcore.InfoLevel:  "INFO ",
+	zapcore.WarnLevel:  "WARN ",
+	zapcore.ErrorLevel: "ERROR",
+}
+
+var levelColors = map[zapcore.Level]struct {
+	color, levelStr string
+}{
+	zapcore.DebugLevel: {clBlue, "DEBUG"},
+	zapcore.InfoLevel:  {clCyan, "INFO "},
+	zapcore.WarnLevel:  {clYellow, "WARN "},
+	zapcore.ErrorLevel: {clRed, "ERROR"},
+}
+
 func fixedWidthLevelEncoder(level zapcore.Level, enc zapcore.PrimitiveArrayEncoder) {
-	var levelStr string
-	switch level {
-	case zapcore.DebugLevel:
-		levelStr = "DEBUG"
-	case zapcore.InfoLevel:
-		levelStr = "INFO "
-	case zapcore.WarnLevel:
-		levelStr = "WARN "
-	case zapcore.ErrorLevel:
-		levelStr = "ERROR"
-	default:
+	levelStr, exists := levelNames[level]
+	if !exists {
 		levelStr = "UNKNW"
 	}
 	enc.AppendString(levelStr)
 }
 
 func fixedWidthColorLevelEncoder(level zapcore.Level, enc zapcore.PrimitiveArrayEncoder) {
-	var color, levelStr string
-	switch level {
-	case zapcore.DebugLevel:
-		color, levelStr = clBlue, "DEBUG"
-	case zapcore.InfoLevel:
-		color, levelStr = clCyan, "INFO "
-	case zapcore.WarnLevel:
-		color, levelStr = clYellow, "WARN "
-	case zapcore.ErrorLevel:
-		color, levelStr = clRed, "ERROR"
-	default:
-		color, levelStr = clReset, "UNKNW"
+	color, levelStr := clReset, "UNKNW"
+	if levelData, exists := levelColors[level]; exists {
+		color, levelStr = levelData.color, levelData.levelStr
 	}
 	enc.AppendString(fmt.Sprintf("%s%s%s", color, levelStr, clReset))
 }
