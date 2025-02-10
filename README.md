@@ -14,7 +14,7 @@ import (
 func main() {
 	// Create a simple console logger with the default log level "info".
 	consoleLogger := dslogger.NewSimpleConsoleLogger("info")
-	consoleLogger.Info("This is a informative message")
+	consoleLogger.Info("This is an informative message")
 	consoleLogger.Warn("Warning! Something might be wrong")
 	consoleLogger.Error("An error occurred", "error", "sample error")
 
