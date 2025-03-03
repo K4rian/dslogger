@@ -6,42 +6,32 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-const (
-	clRed    = "\033[31m"
-	clYellow = "\033[33m"
-	clBlue   = "\033[34m"
-	clCyan   = "\033[36m"
-	clReset  = "\033[0m"
-)
-
-var levelNames = map[zapcore.Level]string{
-	zapcore.DebugLevel: "DEBUG",
-	zapcore.InfoLevel:  "INFO ",
-	zapcore.WarnLevel:  "WARN ",
-	zapcore.ErrorLevel: "ERROR",
+// fixedWidthLevelEncoder encodes the log level as a fixed-width string.
+// This is used to ensure consistent alignment in console output.
+func fixedWidthLevelEncoder(cfg *Config) zapcore.LevelEncoder {
+	return levelEncoder(cfg, false)
 }
 
-var levelColors = map[zapcore.Level]struct {
-	color, levelStr string
-}{
-	zapcore.DebugLevel: {clBlue, "DEBUG"},
-	zapcore.InfoLevel:  {clCyan, "INFO "},
-	zapcore.WarnLevel:  {clYellow, "WARN "},
-	zapcore.ErrorLevel: {clRed, "ERROR"},
+// fixedWidthColorLevelEncoder encodes the log level as a colored, fixed-width string.
+// It uses ANSI escape codes to colorize the output.
+func fixedWidthColorLevelEncoder(cfg *Config) zapcore.LevelEncoder {
+	return levelEncoder(cfg, true)
 }
 
-func fixedWidthLevelEncoder(level zapcore.Level, enc zapcore.PrimitiveArrayEncoder) {
-	levelStr, exists := levelNames[level]
-	if !exists {
-		levelStr = "UNKNW"
+// levelEncoder returns a zapcore.LevelEncoder that uses the provided config's LevelFormats.
+// If a color is defined for the level, the output will include ANSI color codes.
+func levelEncoder(cfg *Config, colored bool) zapcore.LevelEncoder {
+	return func(level zapcore.Level, enc zapcore.PrimitiveArrayEncoder) {
+		lf, ok := cfg.LevelFormats[level]
+		if !ok {
+			// Fallback if no custom format is provided.
+			lf = LevelFormat{LevelStr: level.String()}
+		}
+		// If a color is provided, wrap the level string with the color codes.
+		if colored {
+			enc.AppendString(fmt.Sprintf("%s%s%s", lf.Color, lf.LevelStr, "\033[0m"))
+		} else {
+			enc.AppendString(lf.LevelStr)
+		}
 	}
-	enc.AppendString(levelStr)
-}
-
-func fixedWidthColorLevelEncoder(level zapcore.Level, enc zapcore.PrimitiveArrayEncoder) {
-	color, levelStr := clReset, "UNKNW"
-	if levelData, exists := levelColors[level]; exists {
-		color, levelStr = levelData.color, levelData.levelStr
-	}
-	enc.AppendString(fmt.Sprintf("%s%s%s", color, levelStr, clReset))
 }

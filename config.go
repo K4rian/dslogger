@@ -6,13 +6,17 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// LogFormat defines the output format for log files.
 type LogFormat string
 
-const (
-	LogFormatText LogFormat = "text"
-	LogFormatJSON LogFormat = "json"
-)
+// LevelFormat holds the fixed-width text representation for a log level,
+// as well as an optional ANSI color escape sequence.
+type LevelFormat struct {
+	LevelStr string // e.g. "DEBUG", "INFO", etc.
+	Color    string // e.g. "\033[34m" for blue; empty string if no color.
+}
 
+// Config holds configuration options for the Logger.
 type Config struct {
 	LogFile               string
 	LogFileFormat         LogFormat
@@ -26,8 +30,17 @@ type Config struct {
 	ConsoleSeparator      string
 	FieldSeparator        string
 	ServiceNameDecorators [2]string
+	LevelFormats          map[zapcore.Level]LevelFormat
 }
 
+// Supported log file formats.
+const (
+	LogFormatText LogFormat = "text"
+	LogFormatJSON LogFormat = "json"
+)
+
+// mergeConfig combines user-provided configuration with the default configuration.
+// Any field in userConfig that is considered empty will be replaced with the default value.
 func mergeConfig(userConfig *Config) *Config {
 	userValues := reflect.ValueOf(userConfig).Elem()
 	defaultValues := reflect.ValueOf(DefaultLoggerConfig)
@@ -41,6 +54,8 @@ func mergeConfig(userConfig *Config) *Config {
 	return userConfig
 }
 
+// isEmptyValue checks whether a reflected value is considered empty.
+// It supports common types such as strings, ints, booleans, floats, structs, slices, and arrays.
 func isEmptyValue(v reflect.Value) bool {
 	switch v.Kind() {
 	case reflect.String:
