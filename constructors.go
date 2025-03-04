@@ -74,13 +74,6 @@ func newLogger(level string, config *Config, fileLogging bool, opts ...Option) (
 		*config = *mergeConfig(config)
 	}
 
-	// Ensure the console encoder uses the configured ConsoleSeparator
-	if config.ConsoleConfig.ConsoleSeparator != config.ConsoleSeparator {
-		config.ConsoleConfig.ConsoleSeparator = config.ConsoleSeparator
-	}
-	// Set the console level encoder to use colored output
-	config.ConsoleConfig.EncodeLevel = fixedWidthColorLevelEncoder(config)
-
 	zapLevel := parseLogLevel(level)
 	consoleLogger, err := newConsoleLogger(config, zapLevel)
 	if err != nil {
@@ -91,13 +84,6 @@ func newLogger(level string, config *Config, fileLogging bool, opts ...Option) (
 	var ljLogger *lumberjack.Logger
 
 	if fileLogging {
-		// Ensure file encoder uses the proper console separator if using text format
-		if config.LogFileFormat == LogFormatText && config.FileConfig.ConsoleSeparator != config.ConsoleSeparator {
-			config.FileConfig.ConsoleSeparator = config.ConsoleSeparator
-		}
-		// Set the file level encoder (plain text, no color)
-		config.FileConfig.EncodeLevel = fixedWidthLevelEncoder(config)
-
 		// Create a lumberjack logger for file rotation
 		ljLogger = &lumberjack.Logger{
 			Filename:   config.LogFile,

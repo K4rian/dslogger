@@ -6,15 +6,15 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-// fixedWidthLevelEncoder encodes the log level as a fixed-width string.
+// FixedWidthCapitalLevelEncoder encodes the log level as a fixed-width string.
 // This is used to ensure consistent alignment in console output.
-func fixedWidthLevelEncoder(cfg *Config) zapcore.LevelEncoder {
+func FixedWidthCapitalLevelEncoder(cfg *Config) zapcore.LevelEncoder {
 	return levelEncoder(cfg, false)
 }
 
-// fixedWidthColorLevelEncoder encodes the log level as a colored, fixed-width string.
+// FixedWidthCapitalColorLevelEncoder encodes the log level as a colored, fixed-width string.
 // It uses ANSI escape codes to colorize the output.
-func fixedWidthColorLevelEncoder(cfg *Config) zapcore.LevelEncoder {
+func FixedWidthCapitalColorLevelEncoder(cfg *Config) zapcore.LevelEncoder {
 	return levelEncoder(cfg, true)
 }
 

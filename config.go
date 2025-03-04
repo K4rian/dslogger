@@ -39,47 +39,61 @@ const (
 	LogFormatJSON LogFormat = "json"
 )
 
-// mergeConfig combines user-provided configuration with the default configuration.
-// Any field in userConfig that is considered empty will be replaced with the default value.
+// mergeConfig manually combines a user-provided configuration with the defaults.
+// For each field, if the user provided a zero value, the default is used.
 func mergeConfig(userConfig *Config) *Config {
-	userValues := reflect.ValueOf(userConfig).Elem()
-	defaultValues := reflect.ValueOf(DefaultLoggerConfig)
-
-	for i := 0; i < userValues.NumField(); i++ {
-		field := userValues.Field(i)
-		if isEmptyValue(field) {
-			field.Set(defaultValues.Field(i))
-		}
+	if userConfig.LogFile == "" {
+		userConfig.LogFile = DefaultLoggerConfig.LogFile
 	}
+	if userConfig.Level == "" {
+		userConfig.Level = DefaultLoggerConfig.Level
+	}
+	if userConfig.ConsoleSeparator == "" {
+		userConfig.ConsoleSeparator = DefaultLoggerConfig.ConsoleSeparator
+	}
+	if userConfig.FieldSeparator == "" {
+		userConfig.FieldSeparator = DefaultLoggerConfig.FieldSeparator
+	}
+
+	if userConfig.MaxSize == 0 {
+		userConfig.MaxSize = DefaultLoggerConfig.MaxSize
+	}
+	if userConfig.MaxBackups == 0 {
+		userConfig.MaxBackups = DefaultLoggerConfig.MaxBackups
+	}
+	if userConfig.MaxAge == 0 {
+		userConfig.MaxAge = DefaultLoggerConfig.MaxAge
+	}
+
+	if userConfig.LogFileFormat == "" {
+		userConfig.LogFileFormat = DefaultLoggerConfig.LogFileFormat
+	}
+
+	if reflect.DeepEqual(userConfig.ConsoleConfig, zapcore.EncoderConfig{}) {
+		userConfig.ConsoleConfig = DefaultLoggerConfig.ConsoleConfig
+	}
+
+	if reflect.DeepEqual(userConfig.FileConfig, zapcore.EncoderConfig{}) {
+		userConfig.FileConfig = DefaultLoggerConfig.FileConfig
+	}
+
+	if userConfig.ServiceNameDecorators[0] == "" && userConfig.ServiceNameDecorators[1] == "" {
+		userConfig.ServiceNameDecorators = DefaultLoggerConfig.ServiceNameDecorators
+	}
+
+	if userConfig.LevelFormats == nil {
+		userConfig.LevelFormats = DefaultLoggerConfig.LevelFormats
+	}
+
+	if userConfig.ConsoleConfig.ConsoleSeparator != userConfig.ConsoleSeparator {
+		userConfig.ConsoleConfig.ConsoleSeparator = userConfig.ConsoleSeparator
+	}
+	userConfig.ConsoleConfig.EncodeLevel = FixedWidthCapitalColorLevelEncoder(userConfig)
+
+	if userConfig.FileConfig.ConsoleSeparator != userConfig.ConsoleSeparator {
+		userConfig.FileConfig.ConsoleSeparator = userConfig.ConsoleSeparator
+	}
+	userConfig.FileConfig.EncodeLevel = FixedWidthCapitalLevelEncoder(userConfig)
+
 	return userConfig
-}
-
-// isEmptyValue checks whether a reflected value is considered empty.
-// It supports common types such as strings, ints, booleans, floats, structs, slices, and arrays.
-func isEmptyValue(v reflect.Value) bool {
-	switch v.Kind() {
-	case reflect.String:
-		return v.String() == ""
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return v.Int() == 0
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return v.Uint() == 0
-	case reflect.Bool:
-		return !v.Bool()
-	case reflect.Float32, reflect.Float64:
-		return v.Float() == 0
-	case reflect.Struct:
-		return reflect.DeepEqual(v.Interface(), reflect.Zero(v.Type()).Interface())
-	case reflect.Slice:
-		return v.IsNil() || v.Len() == 0
-	case reflect.Array:
-		for i := 0; i < v.Len(); i++ {
-			if !isEmptyValue(v.Index(i)) {
-				return false
-			}
-		}
-		return true
-	default:
-		return false
-	}
 }
