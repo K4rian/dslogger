@@ -2,40 +2,28 @@ package dslogger
 
 import "go.uber.org/zap/zapcore"
 
-var (
-	DefaultLevelFormats = map[zapcore.Level]LevelFormat{
+// defaultLevelFormats returns a fresh map of default level formats on every call.
+// Returning a new map ensures that callers and loggers can't accidentally share
+// or mutate package-level state.
+func defaultLevelFormats() map[zapcore.Level]LevelFormat {
+	return map[zapcore.Level]LevelFormat{
 		zapcore.DebugLevel: {LevelStr: "DEBUG", Color: "\033[34m"},
 		zapcore.InfoLevel:  {LevelStr: "INFO ", Color: "\033[36m"},
 		zapcore.WarnLevel:  {LevelStr: "WARN ", Color: "\033[33m"},
 		zapcore.ErrorLevel: {LevelStr: "ERROR", Color: "\033[31m"},
 	}
+}
+
+var (
+	// DefaultLevelFormats is kept for backwards compatibility.
+	// Prefer defaultLevelFormats() or NewDefaultConfig().
+	// Direct mutation of this map is unsafe and is not reflected in newly constructed loggers.
+	DefaultLevelFormats = defaultLevelFormats()
 
 	// DefaultConsoleEncoderConfig defines the default encoder configuration for console output.
-	// It uses ISO8601 for time encoding, a fixed-width colored encoder for log levels,
-	// and a short caller encoder to show the file and line number.
+	// The EncodeLevel field is intentionally left unset here, applyDefaults sets the fixed-width
+	// color level encoder bound to the target logger's Config.
 	DefaultConsoleEncoderConfig = zapcore.EncoderConfig{
-		TimeKey:      "timestamp",
-		LevelKey:     "level",
-		MessageKey:   "message",
-		EncodeTime:   zapcore.ISO8601TimeEncoder,
-		EncodeCaller: zapcore.ShortCallerEncoder,
-	}
-
-	// DefaultTextEncoderConfig defines the default encoder configuration for plain text log output.
-	// It uses ISO8601 for time encoding, a fixed-width log level encoder (without color),
-	// and a short caller encoder.
-	DefaultTextEncoderConfig = zapcore.EncoderConfig{
-		TimeKey:      "timestamp",
-		LevelKey:     "level",
-		MessageKey:   "message",
-		EncodeTime:   zapcore.ISO8601TimeEncoder,
-		EncodeCaller: zapcore.ShortCallerEncoder,
-	}
-
-	// DefaultJSONEncoderConfig defines the default encoder configuration for JSON log output.
-	// It uses ISO8601 for time encoding, a capitalized log level encoder,
-	// and a short caller encoder to include caller information.
-	DefaultJSONEncoderConfig = zapcore.EncoderConfig{
 		TimeKey:      "timestamp",
 		LevelKey:     "level",
 		MessageKey:   "message",
@@ -44,10 +32,32 @@ var (
 		EncodeCaller: zapcore.ShortCallerEncoder,
 	}
 
-	// DefaultLoggerConfig provides the default configuration for a dslogger.Logger instance.
-	// It sets default values for the log file path, file format, rotation policies,
-	// encoder configurations for both console and file outputs, and other display options.
-	DefaultLoggerConfig = Config{
+	// DefaultTextEncoderConfig defines the default encoder configuration for plain text log output.
+	DefaultTextEncoderConfig = zapcore.EncoderConfig{
+		TimeKey:      "timestamp",
+		LevelKey:     "level",
+		MessageKey:   "message",
+		EncodeTime:   zapcore.ISO8601TimeEncoder,
+		EncodeLevel:  zapcore.CapitalLevelEncoder,
+		EncodeCaller: zapcore.ShortCallerEncoder,
+	}
+
+	// DefaultJSONEncoderConfig defines the default encoder configuration for JSON log output.
+	DefaultJSONEncoderConfig = zapcore.EncoderConfig{
+		TimeKey:      "timestamp",
+		LevelKey:     "level",
+		MessageKey:   "message",
+		EncodeTime:   zapcore.ISO8601TimeEncoder,
+		EncodeLevel:  zapcore.CapitalLevelEncoder,
+		EncodeCaller: zapcore.ShortCallerEncoder,
+	}
+)
+
+// NewDefaultConfig returns a fresh Config populated with sensible defaults.
+// Every call returns a fully independent value, mutating the result is safe
+// and has no effect on other loggers.
+func NewDefaultConfig() Config {
+	return Config{
 		LogFile:               "app.log",                   // Default log file path
 		LogFileFormat:         LogFormatText,               // Default log file format (text)
 		MaxSize:               10,                          // Maximum size (in MB) of the log file before rotation
@@ -60,6 +70,13 @@ var (
 		FieldSeparator:        ": ",                        // Separator between key and value in log fields
 		ConsoleSeparator:      " | ",                       // Separator between fields in console output
 		ServiceNameDecorators: [2]string{"[", "]"},         // Decorators to wrap the service name in log messages
-		LevelFormats:          DefaultLevelFormats,         // Default Level formats
+		LevelFormats:          defaultLevelFormats(),       // Default Level formats
+		FileMode:              0600,                        // Log file mode
 	}
-)
+}
+
+// DefaultLoggerConfig is kept for backwards compatibility. Prefer NewDefaultConfig().
+// The value is deep-copied during logger construction, so mutating this variable
+// does not affect already-running loggers, but it is still shared package state,
+// so concurrent mutation is unsafe.
+var DefaultLoggerConfig = NewDefaultConfig()

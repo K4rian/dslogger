@@ -1,37 +1,55 @@
 package dslogger
 
 import (
-	"fmt"
-
 	"go.uber.org/zap/zapcore"
 )
 
 // FixedWidthCapitalLevelEncoder encodes the log level as a fixed-width string.
-// This is used to ensure consistent alignment in console output.
+// The encoder snapshots cfg.LevelFormats at construction time, so the returned
+// function is race-free on the hot path and unaffected by subsequent mutation
+// of cfg.LevelFormats.
 func FixedWidthCapitalLevelEncoder(cfg *Config) zapcore.LevelEncoder {
-	return levelEncoder(cfg, false)
+	return buildLevelEncoder(cfg, false)
 }
 
 // FixedWidthCapitalColorLevelEncoder encodes the log level as a colored, fixed-width string.
-// It uses ANSI escape codes to colorize the output.
+// Colors are disabled automaticaly when cfg.NoColor is true which applyDefaults sets when
+// stdout is not a terminal.
 func FixedWidthCapitalColorLevelEncoder(cfg *Config) zapcore.LevelEncoder {
-	return levelEncoder(cfg, true)
+	return buildLevelEncoder(cfg, true)
 }
 
-// levelEncoder returns a zapcore.LevelEncoder that uses the provided config's LevelFormats.
-// If a color is defined for the level, the output will include ANSI color codes.
-func levelEncoder(cfg *Config, colored bool) zapcore.LevelEncoder {
-	return func(level zapcore.Level, enc zapcore.PrimitiveArrayEncoder) {
-		lf, ok := cfg.LevelFormats[level]
-		if !ok {
-			// Fallback if no custom format is provided.
-			lf = LevelFormat{LevelStr: level.String()}
-		}
-		// If a color is provided, wrap the level string with the color codes.
-		if colored {
-			enc.AppendString(fmt.Sprintf("%s%s%s", lf.Color, lf.LevelStr, "\033[0m"))
+// precomputedLevel caches the fully-formatted level strings (with and without color)
+// so the hot path does not allocate via fmt.Sprintf.
+type precomputedLevel struct {
+	plain   string
+	colored string
+}
+
+func buildLevelEncoder(cfg *Config, colored bool) zapcore.LevelEncoder {
+	effectiveColored := colored && !cfg.NoColor
+
+	snap := make(map[zapcore.Level]precomputedLevel, len(cfg.LevelFormats))
+	for lvl, lf := range cfg.LevelFormats {
+		entry := precomputedLevel{plain: lf.LevelStr}
+		if lf.Color != "" {
+			entry.colored = lf.Color + lf.LevelStr + "\033[0m"
 		} else {
-			enc.AppendString(lf.LevelStr)
+			entry.colored = lf.LevelStr
+		}
+		snap[lvl] = entry
+	}
+
+	return func(level zapcore.Level, enc zapcore.PrimitiveArrayEncoder) {
+		p, ok := snap[level]
+		if !ok {
+			enc.AppendString(level.CapitalString())
+			return
+		}
+		if effectiveColored {
+			enc.AppendString(p.colored)
+		} else {
+			enc.AppendString(p.plain)
 		}
 	}
 }

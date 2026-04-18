@@ -3,7 +3,6 @@ package dslogger
 import (
 	"fmt"
 	"os"
-	"sync/atomic"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -11,110 +10,115 @@ import (
 )
 
 // NewConsoleLogger creates a new logger that outputs only to the console.
-// It applies any provided functional options for additional configuration.
 func NewConsoleLogger(level string, config *Config, opts ...Option) (*Logger, error) {
 	return newLogger(level, config, false, opts...)
 }
 
 // NewLogger creates a new logger that outputs to both the console and a file.
-// It uses the provided configuration and applies any functional options.
 func NewLogger(level string, config *Config, opts ...Option) (*Logger, error) {
 	return newLogger(level, config, true, opts...)
 }
 
-// NewSimpleConsoleLogger creates a logger that outputs only to the console using default configuration.
+// NewSimpleConsoleLogger creates a console-only logger using default configuration.
 func NewSimpleConsoleLogger(level string) (*Logger, error) {
-	return newLogger(level, &DefaultLoggerConfig, false)
+	return newLogger(level, nil, false)
 }
 
-// NewSimpleLogger creates a logger that outputs to both console and a text file using default configuration.
+// NewSimpleLogger creates a logger writing to console and a text file using default configuration.
 func NewSimpleLogger(level string) (*Logger, error) {
-	return newLogger(level, &DefaultLoggerConfig, true)
+	return newLogger(level, nil, true)
 }
 
-// newConsoleLogger is an internal helper that creates a console logger given the configuration and level.
-func newConsoleLogger(config *Config, level zapcore.Level) (*zap.SugaredLogger, error) {
-	encoder := zapcore.NewConsoleEncoder(config.ConsoleConfig)
-	return newZapLogger(encoder, zapcore.AddSync(os.Stdout), level)
-}
-
-// newFileLogger is an internal helper that creates a file logger using the provided lumberjack logger.
-func newFileLogger(config *Config, level zapcore.Level, ljLogger *lumberjack.Logger) (*zap.SugaredLogger, error) {
+// buildConsoleZap creates a zap SugaredLogger for console output.
+// When ConsoleFormat is LogFormatJSON it uses zap's stock JSON encoder,
+// otherwise it uses the custom dsConsoleEncoder.
+// The writer is wrapped in zapcore.Lock so that concurrent writers
+// cannot produce torn/garbage output.
+func buildConsoleZap(cfg *Config, level zap.AtomicLevel, serviceName string) *zap.SugaredLogger {
 	var encoder zapcore.Encoder
 
-	if config.LogFileFormat == LogFormatText {
-		encoder = zapcore.NewConsoleEncoder(config.FileConfig)
+	if cfg.ConsoleFormat == LogFormatJSON {
+		encoder = zapcore.NewJSONEncoder(cfg.ConsoleConfig)
 	} else {
-		encoder = zapcore.NewJSONEncoder(config.FileConfig)
+		encoder = newDSConsoleEncoder(cfg, cfg.ConsoleConfig, serviceName)
 	}
-	return newZapLogger(encoder, zapcore.AddSync(ljLogger), level)
+	writer := zapcore.Lock(zapcore.AddSync(cfg.consoleOut()))
+	core := zapcore.NewCore(encoder, writer, level)
+	return zap.New(core, zap.AddCaller(), zap.AddCallerSkip(dsloggerCallerSkip)).Sugar()
 }
 
-// newZapLogger is a helper function that creates a zap logger given an encoder, write syncer, and log level.
-func newZapLogger(encoder zapcore.Encoder, syncer zapcore.WriteSyncer, level zapcore.Level) (*zap.SugaredLogger, error) {
-	core := zapcore.NewCore(encoder, syncer, level)
-	logger := zap.New(core, zap.AddCaller()).Sugar()
+// buildFileZap creates a zap SugaredLogger wrapping the given lumberjack.Logger.
+// For JSON format it uses zap's stock JSON encoder,
+// for text format it uses the custom dsConsoleEncoder (same visual as console, minus colour).
+func buildFileZap(cfg *Config, level zap.AtomicLevel, ljLogger *lumberjack.Logger, serviceName string) *zap.SugaredLogger {
+	var encoder zapcore.Encoder
 
-	if logger == nil {
-		return nil, fmt.Errorf("failed to create zap logger")
+	if cfg.LogFileFormat == LogFormatJSON {
+		encoder = zapcore.NewJSONEncoder(cfg.FileConfig)
+	} else {
+		encoder = newDSConsoleEncoder(cfg, cfg.FileConfig, serviceName)
 	}
-	return logger, nil
+	core := zapcore.NewCore(encoder, zapcore.AddSync(ljLogger), level)
+	return zap.New(core, zap.AddCaller(), zap.AddCallerSkip(dsloggerCallerSkip)).Sugar()
 }
 
-// newLogger is a helper function that creates a new logger instance.
-// If fileLogging is true, it sets up a file logger using lumberjack for file rotation;
-// otherwise, it only creates a console logger. It also applies any provided functional options.
+// newLogger is the shared constructor, it always deep-copies the caller's config,
+// applies defaults to the copy, and never mutates user-owned state.
 func newLogger(level string, config *Config, fileLogging bool, opts ...Option) (*Logger, error) {
-	var err error
+	cfg := cloneConfig(config)
+	applyDefaults(cfg)
 
-	// Merge user configuration with defaults
-	if config == nil {
-		config = &DefaultLoggerConfig
-	} else {
-		*config = *mergeConfig(config)
+	// Fall back to Config.Level when the explicit argument is empty
+	if level == "" && cfg.Level != "" {
+		level = cfg.Level
 	}
 
-	zapLevel := parseLogLevel(level)
-	consoleLogger, err := newConsoleLogger(config, zapLevel)
+	parsedLevel, err := parseLogLevel(level)
 	if err != nil {
-		return nil, err
+		fmt.Fprintf(os.Stderr, "dslogger: %v; falling back to info level\n", err)
+		parsedLevel = zapcore.InfoLevel
 	}
-
-	var fileLogger *zap.SugaredLogger
-	var ljLogger *lumberjack.Logger
-
-	if fileLogging {
-		// Create a lumberjack logger for file rotation
-		ljLogger = &lumberjack.Logger{
-			Filename:   config.LogFile,
-			MaxSize:    config.MaxSize,
-			MaxBackups: config.MaxBackups,
-			MaxAge:     config.MaxAge,
-			Compress:   config.Compress,
-		}
-
-		fileLogger, err = newFileLogger(config, zapLevel, ljLogger)
-		if err != nil {
-			return nil, err
-		}
-	}
+	atomicLvl := zap.NewAtomicLevelAt(parsedLevel)
 
 	logger := &Logger{
-		config:           config,
-		consoleLogger:    consoleLogger,
-		fileLogger:       fileLogger,
-		lumberjackLogger: ljLogger,
-		serviceName:      "",
+		config:      cfg,
+		level:       atomicLvl,
+		serviceName: "",
 	}
-	atomic.StoreInt32(&logger.level, int32(zapLevel))
+	logger.consoleLogger.Store(buildConsoleZap(cfg, atomicLvl, ""))
 
-	initializeLogFuncMaps(logger)
+	if fileLogging {
+		// Pre-create the log file with the configured permissions so that
+		// lumberjack (which defaults to 0600 internally) inherits our mode
+		if cfg.FileMode != 0 {
+			if err := ensureFileMode(cfg.LogFile, cfg.FileMode); err != nil {
+				return nil, fmt.Errorf("dslogger: pre-create log file: %w", err)
+			}
+		}
 
-	// Apply functional options
+		logger.lumberjackLogger = &lumberjack.Logger{
+			Filename:   cfg.LogFile,
+			MaxSize:    cfg.MaxSize,
+			MaxBackups: cfg.MaxBackups,
+			MaxAge:     cfg.MaxAge,
+			Compress:   cfg.Compress,
+		}
+		logger.fileLogger.Store(buildFileZap(cfg, atomicLvl, logger.lumberjackLogger, ""))
+	}
+
 	for _, opt := range opts {
 		if err := opt(logger); err != nil {
 			return nil, err
 		}
 	}
 	return logger, nil
+}
+
+// ensureFileMode creates or chmods the given file to the requested permissions.
+func ensureFileMode(path string, mode os.FileMode) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, mode)
+	if err != nil {
+		return err
+	}
+	return f.Close()
 }
