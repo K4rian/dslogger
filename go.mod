@@ -1,6 +1,6 @@
 module github.com/K4rian/dslogger
 
-go 1.25.0
+go 1.26.2
 
 require (
 	go.opentelemetry.io/otel/trace v1.43.0
