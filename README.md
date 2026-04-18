@@ -1,164 +1,229 @@
 # dslogger
-`dslogger` is a lightweight logger that uses zap for fast, structured logging and lumberjack for efficient log rotation.
+`dslogger` is a lightweight, production-ready Go logging library wrapping [zap][1] for fast structured logging and [lumberjack][2] for automatic log file rotation.
 
-## Usage
-### Simple Console Logger
+---
+
+<p align="center">
+<a href="#quick-start">Quick Start</a> &bull;
+<a href="#advanced-configuration">Advanced Configuration</a> &bull;
+<a href="#functional-options">Functional Options</a> &bull;
+<a href="#constructors">Constructors</a>
+<br>
+<a href="#architecture">Architecture</a> &bull;
+<a href="#limitations">Limitations</a> &bull;
+<a href="#installation">Installation</a> &bull;
+<a href="#license">License</a></p>
+</p>
+
+---
+
+## Quick Start
+
+### Console-only logger
+
 Use `NewSimpleConsoleLogger` to quickly create a console-only logger:
 ```go
-package main
-
-import (
-  "github.com/K4rian/dslogger"
-)
-
-func main() {
-    // Create a console-only logger with default configuration at "info" level
-    logger, err := dslogger.NewSimpleConsoleLogger("info")
-    if err != nil {
-        log.Fatalf("Error creating console logger: %v", err)
-    }
-
-    // Log an informational message
-    logger.Info("This is an info message from the simple console logger!")
-    logger.Warn("Unusual activity detected", "ip", "X.X.X.X")
-    logger.Error("Error processing request", "requestID", "abc123")
+logger, err := dslogger.NewSimpleConsoleLogger("info")
+if err != nil {
+    log.Fatal(err)
 }
+
+logger.Info("Server started", "port", 8080)
+logger.Warn("Slow query", "duration", "2.3s", "table", "users")
 ```
 
-### Simple Logger (Console and File)
-Use `NewSimpleLogger` to create a logger that writes to both the console and a file (using default configuration):
+Output:
+```
+2026-01-15T10:30:00.000Z | INFO  | Server started | port: 8080
+2026-01-15T10:30:00.001Z | WARN  | Slow query | duration: 2.3s | table: users
+```
+
+### Console + file logger
+
+Use `NewSimpleLogger` to create a logger that writes to both the console and a file (`./app.log`) using default configuration:
 ```go
-package main
-
-import (
-  "github.com/K4rian/dslogger"
-)
-
-func main() {
-    // Create a logger that outputs to both console and file at "debug" level
-    logger, err := dslogger.NewSimpleLogger("debug")
-    if err != nil {
-        log.Fatalf("Error creating logger: %v", err)
-    }
-
-    // Log messages at various levels
-    logger.Debug("Debug message", "user", "james")
-    logger.Info("Info message", "action", "login")
-    logger.Warn("Warning message", "ip", "X.X.X.X")
-    logger.Error("Error message", "error", "file not found", "file", "/opt/files/myfile.txt")
+logger, err := dslogger.NewSimpleLogger("debug")
+if err != nil {
+    log.Fatal(err)
 }
+defer logger.Close()
+
+logger.Info("Request received", "method", "GET", "path", "/api/users")
 ```
 
-### Service-Specific Logger
-This example shows how to derive a service-specific logger from a base logger using the `WithService` method.<br>
-The derived logger automatically attaches a `"service": "AuthService"` field to every log entry, making it easier to distinguish logs for different services in your application (especially when using JSON file format for logs):
+Output:
+```
+2026-01-15T10:30:00.000Z | INFO  | Request received | method: GET | path: /api/users
+```
+
+Use `NewLogger` to create a logger that writes to both the console and a file using custom configuration:
 ```go
-package main
+cfg := dslogger.NewDefaultConfig()
+cfg.LogFile = "./my_app.log"
+cfg.LogFileFormat = dslogger.LogFormatJSON
 
-import (
-  "github.com/K4rian/dslogger"
-)
-
-func main() {
-    // Create a console-only logger with default configuration at "info" level
-    logger, err := dslogger.NewSimpleConsoleLogger("info")
-    if err != nil {
-        log.Fatalf("Error creating console logger: %v", err)
-    }
-	logger.Debug("You shouldn't be able to see this message")
-	logger.Info("A simple info message from the base logger!")
-
-    // Derive a logger for a specific service
-    authLogger := logger.WithService("AuthService")
-
-    // Logs will include the "service" field when using JSON file format
-    authLogger.Info("Authentication successful", "user", "james")
+logger, err := dslogger.NewLogger("debug", &cfg)
+if err != nil {
+    log.Fatal(err)
 }
+defer logger.Close()
+
+logger.Info("Request received", "method", "GET", "path", "/api/users")
 ```
 
-### Advanced Console-Only Logger
-This example demonstrates how to create an advanced console-only logger with a custom configuration and options.<br>
-It customizes the encoder settings and sets a custom service name using a functional option:
+While console output uses the human-readable format, the file receives structured JSON:
+```json
+{"timestamp":"2026-01-15T10:30:00.000Z","level":"INFO","message":"Request received","method":"GET","path":"/api/users"}
+```
+
+### Service-specific logger
+
+The derived logger automatically attaches a `"service": "AuthService"` field to every log entry, making it easier to distinguish logs for different services in the application:
 ```go
-package main
+logger, _ := dslogger.NewSimpleConsoleLogger("info")
+authLogger := logger.WithService("AuthService")
 
-import (
-  "github.com/K4rian/dslogger"
-)
-
-func main() {
-    // Define a custom configuration for console logging
-    customConfig := &dslogger.Config{
-        Level:                 "debug",
-        ConsoleConfig:         dslogger.DefaultConsoleEncoderConfig,
-        FieldSeparator:        ": ",
-        ConsoleSeparator:      " | ",
-        ServiceNameDecorators: [2]string{"[", "]"},
-    }
-
-    // Create a console-only logger with custom configuration and a functional option to set the service name
-	logger, err := NewConsoleLogger("debug", customConfig, dslogger.WithServiceName("MyService"), dslogger.WithCallerSkip(1))
-	if err != nil {
-		log.Fatalf("Failed to create advanced console logger: %v", err)
-	}
-
-    logger.Info("This is a custom advanced console-only logger", "count", 14)
-}
+authLogger.Info("Login successful", "user", "james")
 ```
 
-### Advanced Logger (Console and File)
-Create an advanced logger with custom configuration and options that writes to both console and file.<br>
-This example shows how to configure the file output format (JSON or Text) by setting the `LogFileFormat` and corresponding encoder configuration:
+Output:
+```
+2026-01-15T10:30:00.000Z | INFO  | [AuthService] Login successful | user: james
+```
+
+### Derived logger with fields
+
+Both lines carry `request_id` and `trace_id`:
 ```go
-package main
-
-import (
-  "github.com/K4rian/dslogger"
-)
-
-func main() {
-    // Define a custom configuration for the full logger
-	customConfig := &dslogger.Config{
-		LogFile:               "./full.log",
-		LogFileFormat:         dslogger.LogFormatJSON, // Either LogFormatJSON or LogFormatText
-		MaxSize:               50,
-		MaxBackups:            7,
-		MaxAge:                60,
-		Compress:              true,
-		Level:                 "debug",
-		ConsoleConfig:         dslogger.DefaultConsoleEncoderConfig,
-		FileConfig:            dslogger.DefaultJSONEncoderConfig, // For JSON output, use DefaultJSONEncoderConfig; for text, use DefaultTextEncoderConfig
-		FieldSeparator:        "=",
-		ConsoleSeparator:      "    ",
-		ServiceNameDecorators: [2]string{"(", ")"},
-	}
-
-	// Create a logger that writes to both console and file, with a custom "branch" and "creation_time" fields
-	logger, err := NewLogger("debug", customConfig, WithCustomFields("branch", "dev", "creation_time", time.Now()))
-    if err != nil {
-        log.Fatalf("Failed to create full logger: %v", err)
-    }
-
-    // Log messages at various levels.
-    logger.Debug("Debug message with full logger", "user", "bob")
-    logger.Info("Info message with full logger", "operation", "data_import")
-    logger.Warn("Warning message", "warning", "low disk space")
-    logger.Error("Error message", "error", "failed to connect to database")
-}
+reqLogger := logger.WithFields("request_id", "req-42", "trace_id", "abc123")
+reqLogger.Info("Processing")
+reqLogger.Error("Failed", "err", "timeout")
 ```
+
+### Context integration
+
+```go
+ctx := context.WithValue(ctx, dslogger.RequestIDKey, "req-42")
+ctxLogger := logger.WithContext(ctx)
+ctxLogger.Info("Handled request")
+```
+
+OpenTelemetry spans are also extracted automatically:
+
+```go
+ctx, span := tracer.Start(ctx, "handleRequest")
+defer span.End()
+ctxLogger := logger.WithContext(ctx)
+ctxLogger.Info("Traced request") // includes trace_id and span_id
+```
+
+### Fatal and Panic
+
+```go
+logger.Fatal("cannot connect to database", "err", err)
+// logs at ERROR with [FATAL] prefix, flushes, then calls os.Exit(1)
+
+logger.Panic("invariant violated", "state", s)
+// logs at ERROR with [PANIC] prefix, then panics with the message
+```
+
+### Custom console writer
+
+```go
+cfg := dslogger.NewDefaultConfig()
+cfg.ConsoleWriter = os.Stderr // redirect console output to stderr
+
+// or capture to a buffer
+var buf bytes.Buffer
+cfg.ConsoleWriter = &buf
+```
+
+### JSON console output
+
+```go
+cfg := dslogger.NewDefaultConfig()
+cfg.ConsoleFormat = dslogger.LogFormatJSON
+// stdout now emits structured JSON, useful for platforms that ingest stdout as JSON
+```
+
+### slog bridge
+
+```go
+logger, _ := dslogger.NewSimpleConsoleLogger("info")
+slogger := slog.New(dslogger.NewSlogHandler(logger))
+
+slogger.Info("hello from slog", "count", 42)
+slogger.WithGroup("http").Info("request", "method", "GET")
+```
+
+## Advanced Configuration
+
+```go
+cfg := &dslogger.Config{
+    LogFile:               "./app.log",
+    LogFileFormat:         dslogger.LogFormatJSON,
+    MaxSize:               50,        // MB per file
+    MaxBackups:            7,
+    MaxAge:                60,        // days
+    Compress:              true,
+    FileMode:              0640,      // pre-create with these permissions
+    NoColor:               false,     // auto-detected from TTY
+    ForceColor:            false,     // set true for CI with ANSI support
+    ConsoleConfig:         dslogger.DefaultConsoleEncoderConfig,
+    FileConfig:            dslogger.DefaultJSONEncoderConfig,
+    FieldSeparator:        "=",
+    ConsoleSeparator:      "    ",
+    ServiceNameDecorators: [2]string{"(", ")"},
+}
+
+logger, err := dslogger.NewLogger("debug", cfg,
+    dslogger.WithServiceName("MyApp"),
+    dslogger.WithCustomFields("version", "1.2.0"),
+)
+```
+
+## Functional Options
+
+Option                        | Description
+---                           |---
+`WithServiceName(name)`       | Set service name at construction
+`WithCustomFields(k, v, ...)` | Attach fields to every log entry
+`WithCustomField(k, v)`       | Attach a single field
+`WithCallerSkip(n)`           | Adjust caller-skip for wrapper libraries
+`WithConsoleEncoder(enc)`     | Replace the console encoder entirely
+`WithFileEncoder(enc)`        | Replace the file encoder entirely
+`WithCustomLevelFormats(map)` | Custom level strings and colours
+
+## Constructors
+
+Function                                 | Console | File  | Config
+---                                      | ---     | ---   | ---
+ `NewSimpleConsoleLogger(level)`         | Yes     | No    | Defaults
+ `NewSimpleLogger(level)`                | Yes     | Yes   | Defaults
+ `NewConsoleLogger(level, cfg, opts...)` | Yes     | No    | Custom
+ `NewLogger(level, cfg, opts...)`        | Yes     | Yes   | Custom
+
+## Architecture
+
+- **Custom encoder** (`dsConsoleEncoder`) handles all console/text formatting inside `zapcore.Encoder.EncodeEntry`: no intermediate string allocations
+- **Atomic hot path**: level gate is a single atomic load, both zap loggers sit behind `atomic.Pointer`. `SetLogLevel` is a one-line `AtomicLevel.SetLevel` with no core rebuild.
+- **Deep-copy config**: user-supplied `*Config` is cloned at construction, no mutation of caller state.
+- **Precomputed level strings**: ANSI colour and fixed-width formatting are computed once at encoder creation, not per log call.
+
+## Limitations
+
+- **Rotated file permissions**: `FileMode` controls the primary log file. Rotated backups use lumberjack's internal defaults.
+- **`WithCustomLevelFormats` rebuilds cores**: safe but not recommended to call on a live logger under heavy traffic. Use it as a functional option at construction.
 
 ## Installation
-To install `dslogger`, simply run the following command:
 ```bash
-go get github.com/k4rian/dslogger
+go get github.com/K4rian/dslogger@latest
 ```
-
-For Go modules (if you're using Go 1.11+), ensure that your project is using modules and run:
-```bash
-go get github.com/k4rian/dslogger@latest
-```
+Requires **Go 1.26.2+**.
 
 ## License
-[MIT][1]
+[MIT][3]
 
-[1]: https://github.com/K4rian/dslogger/blob/main/LICENSE
+[1]: https://github.com/uber-go/zap
+[2]: https://github.com/natefinch/lumberjack
+[3]: https://github.com/K4rian/dslogger/blob/main/LICENSE
