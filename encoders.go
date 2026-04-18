@@ -13,7 +13,7 @@ func FixedWidthCapitalLevelEncoder(cfg *Config) zapcore.LevelEncoder {
 }
 
 // FixedWidthCapitalColorLevelEncoder encodes the log level as a colored, fixed-width string.
-// Colors are disabled automaticaly when cfg.NoColor is true which applyDefaults sets when
+// Colors are disabled automatically when cfg.NoColor is true which applyDefaults sets when
 // stdout is not a terminal.
 func FixedWidthCapitalColorLevelEncoder(cfg *Config) zapcore.LevelEncoder {
 	return buildLevelEncoder(cfg, true)
